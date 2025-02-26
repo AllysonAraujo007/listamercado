@@ -1,188 +1,105 @@
-const express = require('express');
-const cors = require('cors');
-const mysql = require('mysql2');
-const jwt = require('jsonwebtoken');
-const { body, validationResult } = require('express-validator');
-const nodemailer = require('nodemailer');
+let products = [];
 
-const app = express();
-const port = 5000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Conexão com o banco de dados MySQL
-const db = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: 'sua_senha',
-  database: 'estoque'
-});
-
-db.connect(err => {
-  if (err) throw err;
-  console.log('Conectado ao banco de dados!');
-});
-
-// Secret para JWT
-const JWT_SECRET = 'seu_segredo_jwt';
-
-// Função para gerar token JWT
-function generateToken(user) {
-  return jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '1h' });
-}
-
-// Middleware de autenticação
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.sendStatus(401);
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-}
-
-// Rota para login (autenticação)
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-
-  // Simulação de usuário (em produção, verifique no banco de dados)
-  if (username === 'admin' && password === 'senha123') {
-    const token = generateToken({ id: 1 });
-    res.json({ token });
-  } else {
-    res.status(401).json({ message: 'Credenciais inválidas!' });
+// Função para buscar produtos do backend
+async function fetchProducts() {
+  try {
+    const response = await fetch('http://localhost:5000/products');
+    if (!response.ok) throw new Error('Erro ao buscar produtos');
+    const data = await response.json();
+    products = data;
+    updateProductList();
+  } catch (error) {
+    console.error('Erro:', error);
   }
-});
+}
 
-// Rota para listar produtos (com paginação)
-app.get('/products', authenticateToken, (req, res) => {
-  const { page = 1, limit = 10, sortBy = 'name', order = 'ASC' } = req.query;
-
-  const offset = (page - 1) * limit;
-
-  const query = `
-    SELECT * FROM products
-    ORDER BY ${db.escapeId(sortBy)} ${order}
-    LIMIT ? OFFSET ?
-  `;
-
-  db.query(query, [parseInt(limit), parseInt(offset)], (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
-  });
-});
-
-// Rota para adicionar produtos (com validação)
-app.post(
-  '/products',
-  authenticateToken,
-  [
-    body('name').notEmpty().withMessage('Nome é obrigatório'),
-    body('quantity').isInt({ min: 1 }).withMessage('Quantidade deve ser um número positivo'),
-    body('category').notEmpty().withMessage('Categoria é obrigatória'),
-    body('expiryDate').notEmpty().withMessage('Data de validade é obrigatória'),
-    body('supplier').notEmpty().withMessage('Fornecedor é obrigatório'),
-    body('sku').notEmpty().withMessage('SKU é obrigatório'),
-    body('price').isFloat({ min: 0 }).withMessage('Preço deve ser um número positivo')
-  ],
-  (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { name, quantity, category, expiryDate, supplier, sku, price } = req.body;
-
-    const query = `
-      INSERT INTO products (name, quantity, category, expiry_date, supplier, sku, price)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    db.query(query, [name, quantity, category, expiryDate, supplier, sku, price], (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.status(201).json({ message: 'Produto adicionado com sucesso!', id: result.insertId });
+// Função para adicionar produtos ao backend
+async function addProductToBackend(product) {
+  try {
+    const response = await fetch('http://localhost:5000/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product)
     });
+    if (!response.ok) throw new Error('Erro ao adicionar produto');
+    const result = await response.json();
+    alert(result.message);
+    fetchProducts(); // Atualiza a lista após adicionar
+  } catch (error) {
+    console.error('Erro:', error);
   }
-);
+}
 
-// Rota para remover produtos
-app.delete('/products/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
-
-  const query = 'DELETE FROM products WHERE id = ?';
-  db.query(query, [id], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.affectedRows === 0) return res.status(404).json({ message: 'Produto não encontrado!' });
-    res.json({ message: 'Produto removido com sucesso!' });
-  });
-});
-
-// Rota para exportar produtos em CSV
-app.get('/export/csv', authenticateToken, (req, res) => {
-  const query = 'SELECT * FROM products';
-  db.query(query, (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    let csvContent = "data:text/csv;charset=utf-8,";
-
-    // Cabeçalho do CSV
-    csvContent += "Nome,Quantidade,Categoria,Data de Validade,Fornecedor,SKU,Preço\n";
-
-    // Dados dos produtos
-    results.forEach(product => {
-      const row = `${product.name},${product.quantity},${product.category},${product.expiry_date},${product.supplier},${product.sku},${product.price}`;
-      csvContent += row + "\n";
+// Função para remover produtos do backend
+async function removeProductFromBackend(id) {
+  try {
+    const response = await fetch(`http://localhost:5000/products/${id}`, {
+      method: 'DELETE'
     });
+    if (!response.ok) throw new Error('Erro ao remover produto');
+    const result = await response.json();
+    alert(result.message);
+    fetchProducts(); // Atualiza a lista após remover
+  } catch (error) {
+    console.error('Erro:', error);
+  }
+}
 
-    const encodedUri = encodeURI(csvContent);
-    res.redirect(encodedUri);
-  });
-});
+// Função para atualizar a lista de produtos na interface
+function updateProductList() {
+  const productList = document.getElementById('productList');
+  productList.innerHTML = '';
 
-// Notificação automática para produtos com estoque baixo
-function checkLowStock() {
-  const query = 'SELECT * FROM products WHERE quantity < 10';
-  db.query(query, (err, results) => {
-    if (err) console.error(err);
+  products.forEach(product => {
+    const li = document.createElement('li');
+    li.textContent = `${product.name} - ${product.quantity} unidades (Categoria: ${product.category}, Fornecedor: ${product.supplier}, Preço: R$${product.price.toFixed(2)})`;
 
-    results.forEach(product => {
-      sendNotification(product.name, product.quantity);
-    });
+    const removeButton = document.createElement('button');
+    removeButton.textContent = 'Remover';
+    removeButton.className = 'remove-btn';
+    removeButton.onclick = () => removeProductFromBackend(product.id);
+
+    li.appendChild(removeButton);
+    productList.appendChild(li);
   });
 }
 
-function sendNotification(productName, quantity) {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: 'seuemail@gmail.com',
-      pass: 'suasenha'
-    }
-  });
+// Evento para adicionar produtos
+document.getElementById('addProductButton').addEventListener('click', async () => {
+  const productName = document.getElementById('productName').value.trim();
+  const quantity = parseInt(document.getElementById('quantity').value.trim());
+  const category = document.getElementById('category').value;
+  const expiryDate = document.getElementById('expiryDate').value;
+  const supplier = document.getElementById('supplier').value.trim();
+  const sku = document.getElementById('sku').value.trim();
+  const price = parseFloat(document.getElementById('price').value.trim());
 
-  const mailOptions = {
-    from: 'seuemail@gmail.com',
-    to: 'destinatario@gmail.com',
-    subject: 'Alerta de Estoque Baixo',
-    text: `O produto ${productName} está com estoque baixo! Quantidade atual: ${quantity}`
+  if (!productName || !quantity || !category || !expiryDate || !supplier || !sku || !price) {
+    alert('Por favor, preencha todos os campos.');
+    return;
+  }
+
+  const newProduct = {
+    name: productName,
+    quantity,
+    category,
+    expiryDate,
+    supplier,
+    sku,
+    price
   };
 
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) console.error(error);
-    else console.log('E-mail enviado: ' + info.response);
-  });
-}
+  await addProductToBackend(newProduct);
 
-// Executar verificação de estoque baixo a cada hora
-setInterval(checkLowStock, 60 * 60 * 1000);
-
-// Iniciar o servidor
-app.listen(port, () => {
-  console.log(`Servidor rodando em http://localhost:${port}`);
+  // Limpar os campos de entrada
+  document.getElementById('productName').value = '';
+  document.getElementById('quantity').value = '';
+  document.getElementById('category').value = '';
+  document.getElementById('expiryDate').value = '';
+  document.getElementById('supplier').value = '';
+  document.getElementById('sku').value = '';
+  document.getElementById('price').value = '';
 });
+
+// Inicializar a lista de produtos ao carregar a página
+fetchProducts();
