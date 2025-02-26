@@ -16,4 +16,4 @@ document.getElementById('addProductButton').addEventListener('click', function (
 
   // Limpar o campo de entrada
   document.getElementById('productName').value = '';
-});
+};
